@@ -1,0 +1,41 @@
+// Testing heat equation from a source
+
+// define constants
+real perimTemp = 0;     //  degC
+real sourceTemp = 30;   //  degC
+real kappa = 1;         // conductivity
+
+// define border conditions
+border perimetre(t = 0, 2*pi){x = cos(t); y = sin(t);};
+border source(t = 0, 2*pi){x = 0.1*cos(-t); y = 0.1*sin(-t);};
+
+// define mesh
+mesh Th = buildmesh(perimetre(50)+source(10));
+
+plot(Th, wait=true);
+
+// define FE space
+fespace Vh(Th, P1);
+Vh u, v;
+
+// solve PDE BVP
+solve bvp(u, v) = int2d(Th)(kappa*(dx(u)*dx(v)+dy(u)*dy(v)))         // variational formula
+                                                                        // no RHS condition, =0
+                    +on(perimetre, u=perimTemp)                         // border condition
+                    +on(source, u=sourceTemp);                          // border condition
+
+// plot results
+real[int] hsvColours = [4./6., 1, 1,    // blue
+                        1, 1, 1]; // red
+
+plot(u, fill=true, value=true, hsv=hsvColours, wait=true); // plot with colours going from red to blue
+
+// plot values of u along the x axis
+real[int] xVals(20), uVals(20);
+for(int i=0; i<20; i++)
+{
+    xVals[i] = i/20.;
+    uVals[i] = u(xVals[i], 0);
+}
+
+plot([xVals, uVals], wait=true);
