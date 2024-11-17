@@ -1,0 +1,111 @@
+// define model element constants
+    real[string] vitreous = ["K", 1,    // stiffness
+                            "nu", 0.49, // Poisson's ratio
+                            "l", 1];    // length
+
+    real[string] retina = ["K", 2,      // stiffness
+                            "nu", 0.49, // Poisson's ratio
+                            "l", 1];    // length
+
+    real[string] VMT = ["r", 1];    // VMT radius
+    VMT["A"] = VMT["r"]^2*pi;       // VMT cross-sectional area
+
+    real tEnd = 1;                  // final time of simulation
+    real tStep = 0.1;               // time step of simulation
+    int[int] forces = [0, 1, 2, 3]; // 0 - linear, 1 - quadratic, 2 - inverse exponential, 3 - null
+    real endForce = 10;             // traction force at time tEnd
+
+// define model functions and macros
+    macro lambda(K, nu) (K*nu / ( (1+nu) * (1-2*nu)) ) // first Lame parameter
+    macro mu(K, nu) (K/(2*(1+nu)))                     // second Lame parameter
+
+    func real[int] dForceTypes(real t) 
+    {
+        real[int] derivatives = [1*tStep,       // t' * tStep
+                                2*t*tStep,      // (t^2)' * tStep
+                                exp(-t)*tStep,  // (1-exp(-t))' * tStep
+                                0.];            // 0' * tStep
+
+        real[int] finalValues = [tEnd,
+                                tEnd^2,
+                                1-exp(-tEnd),
+                                0.];            // final values of forces
+
+        //scale derivatives by final values of the forces
+        for [i, deri: derivatives]
+        {
+            deri /= finalValues[i]; // rescale to match all final values of forces
+            deri *= endForce;
+        }
+
+        return derivatives;
+    }
+
+// define FEM parameters
+    int diametreMeshPNo = 20;
+    int heightMeshPNo = 10;
+    int[string] labs = ["fixed", 1,
+                            "VMT", 2];
+
+// generate meshes
+    int[int] l = [labs["VMT"], labs["fixed"], labs["fixed"], labs["fixed"]];
+    mesh ThVitr = square(diametreMeshPNo, heightMeshPNo, [-VMT["r"]+2*VMT["r"]*x, vitreous["l"]*y], label = l); // retinal mesh
+
+    l = [labs["fixed"], labs["fixed"], labs["VMT"], labs["fixed"]];
+    mesh ThRet = square(diametreMeshPNo, heightMeshPNo, [-VMT["r"]+2*VMT["r"]*x, retina["l"]*(y-1)], label = l); // vitreous mesh
+
+    mesh Th0 = ThVitr + ThRet; /* total mesh at time 0;
+                                    labels on both meshes are matched, but in case of discrepancy
+                                    the label from the first mesh is kept */
+
+    mesh Th = Th0;  // mesh to change
+
+    plot(Th, wait=1);
+
+// generate function space
+    func PSpace = P1;
+    fespace Vh(Th, [PSpace, PSpace]);
+    Vh [ux, uy];
+    Vh [uxp, uyp];
+    Vh [uxpp, uypp];
+    Vh [vx, vy];
+
+// generate other macros
+    real sqrt2 = sqrt(2.);
+    macro Epsilon(ux, uy) [dx(ux), dy(uy),
+        (dy(ux)+dx(uy))/sqrt2] //
+    macro Divergence(ux, uy) (dx(ux) + dy(uy)) //
+    macro LHS(ux, uy, vx, vy) lambda(vitreous["K"], vitreous["nu"]) * Divergence(vx, vy) * Divergence(ux, uy)
+                                    + 2. * mu(vitreous["K"], vitreous["nu"]) * (
+                                        Epsilon(vx, vy)' * Epsilon(ux, uy)
+                                        ) // left-hand side of the equation
+
+// simulate for different forces
+for [i, forceNo: forces]
+{
+    // solve system for different time values
+    for(int i=0; i<=floor(tEnd/tStep); i++)
+    {
+        // generate variational form
+            varf vElasticInput([ux, uy], [vx, vy])
+                    = int2d(Th)(LHS(ux, uy, vx, vy))
+                    + int2d(Th)(dForceTypes(i*tStep)[forceNo]*vy) //RHS of the equation
+                    + on(labs["fixed"], ux=0, uy=0)
+                    ;
+
+        // Solve the system
+            matrix<real> Elasticity = vElasticInput(Vh, Vh, solver=sparsesolver);
+            real[int] ElasticityBoundary = vElasticInput(0, Vh);
+            ux[] = Elasticity^-1 * ElasticityBoundary;
+
+        // Move the mesh
+            Th = movemesh(Th, [x+ux, y+uy]);
+            [ux, uy] = [ux, uy];
+
+        // Plot solution
+            plot([ux, uy], value=true, cmm="u", wait = (i==floor(tEnd/tStep)));
+    }
+
+    // reset mesh after simulation
+    Th = Th0;
+}
