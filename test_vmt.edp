@@ -1,0 +1,84 @@
+// define model element constants
+    real[string] vitreous = ["K", 1,    // stiffness
+                            "nu", 0.49, // Poisson's ratio
+                            "l", 1];    // length
+
+    real[string] retina = ["K", 2,      // stiffness
+                            "nu", 0.49, // Poisson's ratio
+                            "l", 1];    // length
+
+    real[string] VMT = ["r", 1];    // VMT radius
+    VMT["A"] = VMT["r"]^2*pi;       // VMT cross-sectional area
+
+    real tEnd = 1;                  // final time of simulation
+    real endForce = 10;             // traction force at time tEnd
+
+// define model functions and macros
+    macro lambda(K, nu) (K*nu / ( (1+nu) * (1-2*nu)) ) // first Lame parameter
+    macro mu(K, nu) (K/(2*(1+nu)))                     // second Lame parameter
+
+// define FEM parameters
+    int diametreMeshPNo = 20;
+    int heightMeshPNo = 10;
+    int[string] labs = ["fixed", 1,
+                            "VMT", 2];
+
+// generate meshes
+    int[int] l = [labs["VMT"], labs["fixed"], labs["fixed"], labs["fixed"]];                                    // labels are assigned counterclockwise from the "bottom"
+    mesh ThVitr0 = square(diametreMeshPNo, heightMeshPNo, [-VMT["r"]+2*VMT["r"]*x, vitreous["l"]*y], label = l); // retinal mesh
+
+    l = [labs["fixed"], labs["fixed"], labs["VMT"], labs["fixed"]];
+    mesh ThRet0 = square(diametreMeshPNo, heightMeshPNo, [-VMT["r"]+2*VMT["r"]*x, retina["l"]*(y-1)], label = l); // vitreous mesh
+
+    mesh Th0 = ThVitr0 + ThRet0; /* total mesh at time 0;
+                                    labels on both meshes are matched, but in case of discrepancy
+                                    the label from the first mesh is kept */
+
+    mesh ThVitr = ThVitr0;
+    mesh ThRet = ThRet0;
+    mesh Th = Th0;  // mesh to change
+
+    plot(Th, wait=1);   // plot the initial mesh setup
+
+// generate function space
+    func PSpace = P1;
+    fespace Vh(Th, [PSpace, PSpace]);
+    Vh [ux, uy];
+    Vh [uxp, uyp];
+    Vh [uxpp, uypp];
+    Vh [vx, vy];
+
+// generate other macros
+    real sqrt2 = sqrt(2.);
+    macro Epsilon(ux, uy) [dx(ux), dy(uy),
+        (dy(ux)+dx(uy))/sqrt2] //
+    macro Divergence(ux, uy) (dx(ux) + dy(uy)) //
+    macro LHS(ux, uy, vx, vy, element) lambda(element["K"], element["nu"]) * Divergence(vx, vy) * Divergence(ux, uy)
+                                    + 2. * mu(element["K"], element["nu"]) * (
+                                        Epsilon(vx, vy)' * Epsilon(ux, uy)
+                                        ) // left-hand side of the equation
+
+// generate variational form
+    varf vElasticInput([ux, uy], [vx, vy])
+            = int2d(ThVitr)(LHS(ux, uy, vx, vy, vitreous))
+            + int2d(ThRet)(LHS(ux, uy, vx, vy, retina))
+            + int2d(Th)(endForce*vy) //RHS of the equation
+            + on(labs["fixed"], ux=0, uy=0)
+            ;
+
+// Solve the system
+    matrix<real> Elasticity = vElasticInput(Vh, Vh, solver=sparsesolver);
+    real[int] ElasticityBoundary = vElasticInput(0, Vh);
+    ux[] = Elasticity^-1 * ElasticityBoundary;
+
+// Move the mesh
+    Th = movemesh(Th, [x+ux, y+uy]);
+    ThVitr = movemesh(ThVitr, [x+ux, y+uy]);
+    ThRet = movemesh(ThRet, [x+ux, y+uy]);
+    [ux, uy] = [ux, uy];
+
+// Plot solution
+    plot([ux, uy], value=true, cmm="u", wait = 1);
+
+    // mesh tttt = ThRet+ThVitr;
+    // plot(tttt, wait=1);         // does this work?
