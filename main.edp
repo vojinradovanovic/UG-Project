@@ -99,7 +99,7 @@ for [i, forceNo: forces]
             varf vElasticInput([ux, uy], [vx, vy])
                     = int2d(Th, regs["vitreous"])(LHS(ux, uy, vx, vy, vitreous))
                     + int2d(Th, regs["retina"])(LHS(ux, uy, vx, vy, retina))
-                    + int2d(Th)(dForceTypes(j*tStep)[forceNo]*vy) //RHS of the equation
+                    + int2d(Th)(tStep * dForceTypes(j*tStep)[forceNo] * vy) //RHS of the equation
                     + on(labs["fixed"], ux=0, uy=0)
                     ;
 
