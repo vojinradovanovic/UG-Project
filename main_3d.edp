@@ -117,7 +117,7 @@ for [i, forceNo: forces]
             varf vElasticity ([ux, uy, uz], [vx, vy, vz])
                 = int3d(Th, regs["vitreous"])(LHS(ux, uy, uz, vx, vy, vz, vitreous))
                 + int3d(Th, regs["retina"])(LHS(ux, uy, uz, vx, vy, vz, retina))
-                + int3d(Th)(dForceTypes(j*tStep)[forceNo]*vz) //RHS of the equation
+                + int3d(Th)(tStep * dForceTypes(j*tStep)[forceNo] * vz) //RHS of the equation
                 + on(regs["fixed"], ux=0, uy=0, uz=0)
                 + on(labs["fixed"], ux=0, uy=0, uz=0)
                 ;
