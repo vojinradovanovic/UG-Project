@@ -1,0 +1,140 @@
+// load plugins
+load "msh3"
+
+// define model element constants
+    real[string] vitreous = ["K", 1,    //stiffness
+                            "nu", 0.49, //Poisson's ratio
+                            "l", 1];    // length
+
+    real[string] retina = ["K", 1,      //stiffness
+                            "nu", 0.49, //Poisson's ratio
+                            "l", 1];    //length
+
+    real[string] VMT = ["r", 1];    //VMT radius
+    VMT["A"] = VMT["r"]^2*pi;       // VMT cross-sectional area
+
+    real tEnd = 1;                  // final time of simulation
+    real tStep = 0.1;               // time step of simulation
+    int[int] forces = [0, 1, 2, 3]; // 0 - linear, 1 - quadratic, 2 - inverse exponential, 3 - null
+    real endForce = 10;             // traction force at time tEnd
+
+// define model functions and macros
+    macro lambda(K, nu) (K*nu / ( (1+nu) * (1-2*nu)) ) // first Lame parameter
+    macro mu(K, nu) (K/(2*(1+nu)))                     // second Lame parameter
+
+    func real[int] dForceTypes(real t) 
+    {
+        real[int] derivatives = [1*tStep,       // t' * tStep
+                                2*t*tStep,      // (t^2)' * tStep
+                                exp(-t)*tStep,  // (1-exp(-t))' * tStep
+                                0.];            // 0' * tStep
+
+        real[int] finalValues = [tEnd,
+                                tEnd^2,
+                                1-exp(-tEnd),
+                                0.];            // final values of forces
+
+        //scale derivatives by final values of the forces
+        for [i, deri: derivatives]
+        {
+            if(finalValues[i] != 0)
+                deri /= finalValues[i]; // rescale to match all final values of forces
+
+            deri *= endForce;
+        }
+
+        return derivatives;
+    }
+
+// define FEM parameters
+    int perimetreMeshPNo = 20;
+    int heightMeshPNo = 5;
+    int[string] labs = ["border", 201,
+                            "fixed", 301];
+    int[string] regs = ["inner", 2001,
+                        "fixed", 3001,
+                        "VMT", 3002,
+                        "vitreous", 4001,
+                        "retina", 4002];
+
+// Generate meshes
+    border perimetre(t=0, 2*pi){x=cos(t); y=sin(t); label=labs["border"];} // generate VMT perimetre
+    mesh Th2 = buildmesh(perimetre(perimetreMeshPNo)); // generate z=0 cross-section in 2D space
+    int[int] changeRegs = [0, regs["inner"]];   // prepare region values for changing
+    Th2 = change(Th2, region = changeRegs);     //change region values
+    
+    int[int] lup = [regs["inner"], regs["fixed"]],
+                ldown = [regs["inner"], regs["VMT"]],
+                lmid = [labs["border"], labs["fixed"]];     // prepare labels for 3d mesh
+    int[int] tetraRegs = [regs["inner"], regs["vitreous"]]; // prepare labels for tetrahedra
+    mesh3 ThVitr0 = buildlayers(Th2, heightMeshPNo, zbound = [0, vitreous["l"]], region = tetraRegs,
+                                labelup = lup, labeldown = ldown, labelmid = lmid); // generate 3d vitreous cylinder
+
+    lup = [regs["inner"], regs["VMT"]];
+    ldown = [regs["inner"], regs["fixed"]];
+    lmid = [labs["border"], labs["fixed"]];         // prepare labels for 3d mesh
+    tetraRegs = [regs["inner"], regs["retina"]]; // prepare labels for tetrahedra
+    mesh3 ThRet0 = buildlayers(Th2, heightMeshPNo, zbound = [-retina["l"], 0], region = tetraRegs,
+                                labelup = lup, labeldown = ldown, labelmid = lmid); // generate 3d retinal cylinder
+
+    mesh3 Th0 = ThVitr0 + ThRet0;  /* total mesh at time 0;
+                                    labels on both meshes are matched, but in case of discrepancy
+                                    the label from the first mesh is kept */
+
+    mesh3 Th = Th0;  // mesh to change
+
+    savemesh(Th, "ThMain3D.mesh");
+
+    plot(Th, wait=1);
+
+// Generate function space
+    func PSpace = P1;
+    fespace Vh(Th, [PSpace, PSpace, PSpace]);
+    Vh [ux, uy, uz];
+    Vh [uxp, uyp, uzp];
+    Vh [uxpp, uypp, uzpp];
+    Vh [vx, vy, vz];
+
+// Generate other macros
+    real sqrt2 = sqrt(2.);
+    macro Epsilon(ux, uy, uz) [dx(ux), dy(uy), dz(uz),
+        (dz(uy)+dy(uz))/sqrt2,
+        (dz(ux)+dx(uz))/sqrt2,
+        (dy(ux)+dx(uy))/sqrt2] //
+    macro Divergence(ux, uy, uz) (dx(ux) + dy(uy) + dz(uz)) //
+    macro LHS(ux, uy, uz, vx, vy, vz, element)
+        lambda(element["K"], element["nu"]) * Divergence(vx, vy, vz) * Divergence(ux, uy, uz)
+                                    + 2. * mu(element["K"], element["nu"]) * (
+                                        Epsilon(vx, vy, vz)' * Epsilon(ux, uy, uz)
+                                        )   // left-hand side of the equation
+
+for [i, forceNo: forces]
+{
+    // solve system for different time values
+    for(int j=0; j<=floor(tEnd/tStep); j++)
+    {
+        // Generate variational form
+            varf vElasticity ([ux, uy, uz], [vx, vy, vz])
+                = int3d(Th, regs["vitreous"])(LHS(ux, uy, uz, vx, vy, vz, vitreous))
+                + int3d(Th, regs["retina"])(LHS(ux, uy, uz, vx, vy, vz, retina))
+                + int3d(Th)(dForceTypes(j*tStep)[forceNo]*vz) //RHS of the equation
+                + on(regs["fixed"], ux=0, uy=0, uz=0)
+                + on(labs["fixed"], ux=0, uy=0, uz=0)
+                ;
+        
+        // Solve the system
+            matrix Elasticity = vElasticity(Vh, Vh, solver=sparsesolver);
+            real[int] ElasticityBoundary = vElasticity(0, Vh);
+            ux[] = Elasticity^-1 * ElasticityBoundary;
+
+        //Movemesh
+            Th= movemesh(Th, [x+ux, y+uy, z+uz]);
+            [ux, uy, uz] = [ux, uy, uz];
+
+        //Plot
+            plot(Th, wait = (j==floor(tEnd/tStep)));
+    }
+
+    // reset mesh after simulation
+    Th = Th0;
+}
