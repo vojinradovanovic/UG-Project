@@ -34,7 +34,9 @@
         //scale derivatives by final values of the forces
         for [i, deri: derivatives]
         {
-            deri /= finalValues[i]; // rescale to match all final values of forces
+            if(finalValues[i] != 0)
+                deri /= finalValues[i]; // rescale to match all final values of forces
+                
             deri *= endForce;
         }
 
@@ -46,15 +48,21 @@
     int heightMeshPNo = 10;
     int[string] labs = ["fixed", 1,
                             "VMT", 2];
+    int[string] regs = ["vitreous", 101,
+                            "retina", 102];
 
 // generate meshes
     int[int] l = [labs["VMT"], labs["fixed"], labs["fixed"], labs["fixed"]];
-    mesh ThVitr = square(diametreMeshPNo, heightMeshPNo, [-VMT["r"]+2*VMT["r"]*x, vitreous["l"]*y], label = l); // retinal mesh
+    mesh ThVitr0 = square(diametreMeshPNo, heightMeshPNo, [-VMT["r"]+2*VMT["r"]*x, vitreous["l"]*y], label = l); // retinal mesh
+    int[int] changeRegs = [0, regs["vitreous"]];    // prepare region values for changing
+    ThVitr0 = change(ThVitr0, region = changeRegs); //change region values
 
     l = [labs["fixed"], labs["fixed"], labs["VMT"], labs["fixed"]];
-    mesh ThRet = square(diametreMeshPNo, heightMeshPNo, [-VMT["r"]+2*VMT["r"]*x, retina["l"]*(y-1)], label = l); // vitreous mesh
+    mesh ThRet0 = square(diametreMeshPNo, heightMeshPNo, [-VMT["r"]+2*VMT["r"]*x, retina["l"]*(y-1)], label = l); // vitreous mesh
+    changeRegs = [0, regs["retina"]];    // prepare region values for changing
+    ThRet0 = change(ThRet0, region = changeRegs); //change region values
 
-    mesh Th0 = ThVitr + ThRet; /* total mesh at time 0;
+    mesh Th0 = ThVitr0 + ThRet0; /* total mesh at time 0;
                                     labels on both meshes are matched, but in case of discrepancy
                                     the label from the first mesh is kept */
 
@@ -75,21 +83,23 @@
     macro Epsilon(ux, uy) [dx(ux), dy(uy),
         (dy(ux)+dx(uy))/sqrt2] //
     macro Divergence(ux, uy) (dx(ux) + dy(uy)) //
-    macro LHS(ux, uy, vx, vy) lambda(vitreous["K"], vitreous["nu"]) * Divergence(vx, vy) * Divergence(ux, uy)
-                                    + 2. * mu(vitreous["K"], vitreous["nu"]) * (
+    macro LHS(ux, uy, vx, vy, element)
+        lambda(element["K"], element["nu"]) * Divergence(vx, vy) * Divergence(ux, uy)
+                                    + 2. * mu(element["K"], element["nu"]) * (
                                         Epsilon(vx, vy)' * Epsilon(ux, uy)
-                                        ) // left-hand side of the equation
+                                        )   // left-hand side of the equation
 
 // simulate for different forces
 for [i, forceNo: forces]
 {
     // solve system for different time values
-    for(int i=0; i<=floor(tEnd/tStep); i++)
+    for(int j=0; j<=floor(tEnd/tStep); j++)
     {
         // generate variational form
             varf vElasticInput([ux, uy], [vx, vy])
-                    = int2d(Th)(LHS(ux, uy, vx, vy))
-                    + int2d(Th)(dForceTypes(i*tStep)[forceNo]*vy) //RHS of the equation
+                    = int2d(Th, regs["vitreous"])(LHS(ux, uy, vx, vy, vitreous))
+                    + int2d(Th, regs["retina"])(LHS(ux, uy, vx, vy, retina))
+                    + int2d(Th)(dForceTypes(j*tStep)[forceNo]*vy) //RHS of the equation
                     + on(labs["fixed"], ux=0, uy=0)
                     ;
 
@@ -103,7 +113,7 @@ for [i, forceNo: forces]
             [ux, uy] = [ux, uy];
 
         // Plot solution
-            plot([ux, uy], value=true, cmm="u", wait = (i==floor(tEnd/tStep)));
+            plot([ux, uy], value=true, cmm="u", wait = (j==floor(tEnd/tStep)));
     }
 
     // reset mesh after simulation
