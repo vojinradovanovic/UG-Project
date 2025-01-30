@@ -1,41 +1,50 @@
 // Testing heat equation from a source
 
+// load libraries
+    load "iovtk"
+
 // define constants
-real perimTemp = 0;     //  degC
-real sourceTemp = 30;   //  degC
-real kappa = 1;         // conductivity
+    real perimTemp = 0;     // degC
+    real sourceTemp = 30;   // degC
+    real kappa = 1;         // conductivity
+    int wait = 1;           // hold graphs while plotting; 1-true, 0-false
 
 // define border conditions
-border perimetre(t = 0, 2*pi){x = cos(t); y = sin(t);};
-border source(t = 0, 2*pi){x = 0.1*cos(-t); y = 0.1*sin(-t);};
+    border perimetre(t = 0, 2*pi){x = cos(t); y = sin(t);};     // region of interest is to the left of function
+    border source(t = 0, 2*pi){x = 0.1*cos(-t); y = 0.1*sin(-t);};
 
 // define mesh
-mesh Th = buildmesh(perimetre(50)+source(10));
+    mesh Th = buildmesh(perimetre(50)+source(10));
 
-plot(Th, wait=true);
+plot(Th, wait=wait);
 
 // define FE space
-fespace Vh(Th, P1);
-Vh u, v;
+    fespace Vh(Th, P1); // P1 - space of piecewise continuous linear polynomials
+    Vh u, v;
 
 // solve PDE BVP
-solve bvp(u, v) = int2d(Th)(kappa*(dx(u)*dx(v)+dy(u)*dy(v)))         // variational formula
+    solve bvp(u, v) = int2d(Th)(kappa*(dx(u)*dx(v)+dy(u)*dy(v)))        // variational formula
                                                                         // no RHS condition, =0
                     +on(perimetre, u=perimTemp)                         // border condition
                     +on(source, u=sourceTemp);                          // border condition
 
 // plot results
-real[int] hsvColours = [4./6., 1, 1,    // blue
-                        1, 1, 1]; // red
+    real[int] hsvColours = [4/6, 1, 1,    // blue
+                            1, 1, 1]; // red
 
-plot(u, fill=true, value=true, hsv=hsvColours, wait=true); // plot with colours going from red to blue
+    plot(u, fill=true, value=true, hsv=hsvColours, wait=wait); // plot with colours going from red to blue
 
 // plot values of u along the x axis
-real[int] xVals(20), uVals(20);
-for(int i=0; i<20; i++)
-{
-    xVals[i] = i/20.;
-    uVals[i] = u(xVals[i], 0);
-}
+    real[int] xVals(20), uVals(20);
+    for(int i=0; i<20; i++)
+    {
+        xVals[i] = i/20.;
+        uVals[i] = u(xVals[i], 0);
+    }
 
-plot([xVals, uVals], wait=true);
+    plot([xVals, uVals], wait=wait);
+
+// export to ParaView file
+    int[int] Order = [1];   // corresponds to P1, the function space
+    string DataName = "Temperature_degC";  // variable name in the vtu file
+    savevtk("D:\\FAKS\\UoE\\24-25 FYP\\FreeFEM Code\\data files\\test.vtu", Th, u, dataname=DataName, order=Order);
