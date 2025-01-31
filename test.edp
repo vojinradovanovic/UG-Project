@@ -47,4 +47,4 @@ plot(Th, wait=wait);
 // export to ParaView file
     int[int] Order = [1];   // corresponds to P1, the function space
     string DataName = "Temperature_degC";  // variable name in the vtu file
-    savevtk("D:\\FAKS\\UoE\\24-25 FYP\\FreeFEM Code\\data files\\test.vtu", Th, u, dataname=DataName, order=Order);
+    savevtk("D:\\FAKS\\UoE\\24-25 FYP\\FreeFEM Code\\data files\\test_Th.vtu", Th, u, dataname=DataName, order=Order);
