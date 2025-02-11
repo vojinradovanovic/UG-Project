@@ -14,7 +14,7 @@
     border source(t = 0, 2*pi){x = 0.1*cos(-t); y = 0.1*sin(-t);};
 
 // define mesh
-    mesh Th = buildmesh(perimetre(50)+source(10));
+    mesh Th = buildmesh(perimetre(50)+source(10), fixedborder = true);
 
 plot(Th, wait=wait);
 
