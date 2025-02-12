@@ -1,4 +1,10 @@
-// 3D VMT model, no ILM
+/*
+3D VMT model, no ILM:
+- exports into paraview
+- mock force values, dimensions
+- has time evolution
+- no ILM
+*/
 
 // load libraries
     load "iovtk"
