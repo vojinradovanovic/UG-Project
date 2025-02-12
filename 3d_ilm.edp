@@ -1,4 +1,10 @@
-// 3D VMT model, no ILM
+/*
+3D VMT model, with ILM:
+- exports into paraview
+- mock force values, dimensions
+- has time evolution
+- has ILM
+*/
 
 // load libraries
     load "iovtk"
@@ -73,7 +79,7 @@
 
 // generate meshes
     border perimetre(t=0, 2*pi){x=cos(t); y=sin(t); label=labs["border"];} // generate VMT perimetre
-    mesh Th2 = buildmesh(perimetre(perimetreMeshPNo), fixedborder = true); // generate z=0 cross-section in 2D space
+    mesh Th2 = buildmesh(perimetre(perimetreMeshPNo), fixedborder=true); // generate z=0 cross-section in 2D space
     int[int] changeRegs = [0, regs["inner"]];   // prepare region values for changing
     Th2 = change(Th2, region = changeRegs);     //change region values
     
