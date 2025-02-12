@@ -1,4 +1,10 @@
-// provides a test model for VMT
+/*
+Provides a test model for VMT:
+- exports into paraview
+- mock force values, dimensions
+- no time evolution
+- no ILM
+*/
 
 // load libraries
     load "iovtk"
