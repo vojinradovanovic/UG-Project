@@ -1,4 +1,9 @@
-// Testing heat equation from a source
+/*
+Testing heat equation from a source:
+- exports into paraview
+- mock force values, dimensions
+- no time evolution
+*/
 
 // load libraries
     load "iovtk"
