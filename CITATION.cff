@@ -1,0 +1,17 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: >-
+  Mathematical Modelling of Macular Holes using Finite
+  Element Modelling: Code and Visualizations
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Vojin
+    family-names: Radovanović
+    email: vojar181@gmail.com
+    affiliation: University of Edinburgh
+repository-code: 'https://github.com/vojinradovanovic/UG-Project'
