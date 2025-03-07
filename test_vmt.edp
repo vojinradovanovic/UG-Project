@@ -1,10 +1,10 @@
-/*
-Provides a test model for VMT:
-- exports into paraview
-- mock force values, dimensions
-- no time evolution
-- no ILM
-*/
+/* test_vmt:
+    Provides a test model for VMT:
+    - exports into paraview
+    - mock force values, dimensions
+    - no time evolution
+    - no ILM
+    */
 
 // load libraries
     load "iovtk"
@@ -38,10 +38,10 @@ Provides a test model for VMT:
 
 // generate meshes
     int[int] l = [labs["VMT"], labs["fixed"], labs["fixed"], labs["fixed"]];                                    // labels are assigned counterclockwise from the "bottom"
-    mesh ThVitr0 = square(diametreMeshPNo, heightMeshPNo, [-VMT["r"]+2*VMT["r"]*x, vitreous["l"]*y], label = l); // retinal mesh
+    mesh ThVitr0 = square(diametreMeshPNo, heightMeshPNo, [-VMT["r"]+2*VMT["r"]*x, vitreous["l"]*y], label = l); // vitreous mesh
 
     l = [labs["fixed"], labs["fixed"], labs["VMT"], labs["fixed"]];
-    mesh ThRet0 = square(diametreMeshPNo, heightMeshPNo, [-VMT["r"]+2*VMT["r"]*x, retina["l"]*(y-1)], label = l); // vitreous mesh
+    mesh ThRet0 = square(diametreMeshPNo, heightMeshPNo, [-VMT["r"]+2*VMT["r"]*x, retina["l"]*(y-1)], label = l); // retinal mesh
 
     mesh Th0 = ThVitr0 + ThRet0; /* total mesh at time 0;
                                     labels on both meshes are matched, but in case of discrepancy

@@ -1,10 +1,11 @@
-/*
-3D VMT model, with ILM:
-- exports into paraview
-- mock force values, dimensions
-- has time evolution
-- has ILM
-*/
+/* 3d_ilm:
+    3D VMT model, with ILM:
+    - exports into paraview
+    - mock force values, dimensions
+    - has time evolution
+    - has ILM
+    - new force evolution
+    */
 
 // load libraries
     load "iovtk"
@@ -15,7 +16,7 @@
                             "nu", 0.49, //Poisson's ratio
                             "l", 1];    // length
 
-    real[string] retina = ["K", 1,      //stiffness
+    real[string] retina = ["K", 2,      //stiffness
                             "nu", 0.49, //Poisson's ratio
                             "l", 1];    //length
 
@@ -28,11 +29,11 @@
 
     real tEnd = 1;                  // final time of simulation
     real tStep = 0.1;               // time step of simulation
-    int[string] forces = ["lin", 0,
+    int[string] forceTypes = ["lin", 0,
                             "quad", 1,
                             "inv_exp", 2,
                             "null", 3];    // force types
-    real endForce = 100;             // traction force at time tEnd
+    real endForce = 10;             // traction force at time tEnd
 
     real wait = 1;      // hold graphs while plotting; 1-true, 0-false
 
@@ -40,32 +41,19 @@
     macro lambda(K, nu) (K*nu / ( (1+nu) * (1-2*nu)) ) // first Lame parameter
     macro mu(K, nu) (K/(2*(1+nu)))                     // second Lame parameter
 
-    func real[int] dForceTypes(real t) 
+    // generates an array of proposed forces at time t
+    func real[int] Forces(real t) 
     {
-        real[int] derivatives = [1*tStep,       // t' * tStep
-                                2*t*tStep,      // (t^2)' * tStep
-                                exp(-t)*tStep,  // (1-exp(-t))' * tStep
-                                0.];            // 0' * tStep
+        real[int] values = [t/tEnd,
+                            (t/tEnd)^2,
+                            (1-exp(-2*t))/(1-exp(-2*tEnd)),
+                            0.] * endForce;
 
-        real[int] finalValues = [tEnd,
-                                tEnd^2,
-                                1-exp(-tEnd),
-                                0.];            // final values of forces
-
-        //scale derivatives by final values of the forces
-        for [i, deri: derivatives]
-        {
-            if(finalValues[i] != 0)
-                deri /= finalValues[i]; // rescale to match all final values of forces
-
-            deri *= endForce;
-        }
-
-        return derivatives;
+        return values;
     }
 
 // define FEM parameters
-    int perimetreMeshPNo = 20;
+    int perimeterMeshPNo = 20;
     int heightMeshPNo = 5;
     int ILMheightMeshPNo = 2;
     int[string] labs = ["border", 201,
@@ -78,8 +66,8 @@
                         "ILM", 4003];
 
 // generate meshes
-    border perimetre(t=0, 2*pi){x=cos(t); y=sin(t); label=labs["border"];} // generate VMT perimetre
-    mesh Th2 = buildmesh(perimetre(perimetreMeshPNo), fixedborder=true); // generate z=0 cross-section in 2D space
+    border perimeter(t=0, 2*pi){x=cos(t); y=sin(t); label=labs["border"];} // generate VMT perimeter
+    mesh Th2 = buildmesh(perimeter(perimeterMeshPNo), fixedborder=true); // generate z=0 cross-section in 2D space
     int[int] changeRegs = [0, regs["inner"]];   // prepare region values for changing
     Th2 = change(Th2, region = changeRegs);     //change region values
     
@@ -102,7 +90,7 @@
     lmid = [labs["border"], labs["fixed"]];      // prepare labels for 3d mesh
     tetraRegs = [regs["inner"], regs["ILM"]]; // prepare labels for tetrahedra
     mesh3 ThILM0 = buildlayers(Th2, ILMheightMeshPNo, zbound = [-ILM["l"]/2, ILM["l"]/2], region = tetraRegs,
-                                labelup = lup, labeldown = ldown, labelmid = lmid); // generate 3d retinal cylinder
+                                labelup = lup, labeldown = ldown, labelmid = lmid); // generate 3d ilm cylinder
 
     mesh3 Th0 = ThVitr0 + ThILM0 + ThRet0;  /* total mesh at time 0;
                                     labels on both meshes are matched, but in case of discrepancy
@@ -138,7 +126,7 @@
     string DataName = "Displacement";  // variable names in the vtu file
 
 // run simulations
-    for [force, i: forces]
+    for [force, i: forceTypes]
     {
         // save initial mesh for the animation in the "3d_ilm_Th_[i]" file
         savevtk("D:\\FAKS\\UoE\\24-25 FYP\\FreeFEM Code\\3d_ilm\\3d_ilm_Th_"+force+"_0.vtu",
@@ -147,12 +135,18 @@
         // solve system for different time values
         for(int j=0; j<=floor(tEnd/tStep); j++)
         {
+            // calculate increase in force
+                real deltaF=0;
+
+                if(j>0)
+                    deltaF = Forces(j*tStep)[i] - Forces((j-1)*tStep)[i];
+            
             // generate variational form
                 varf vElasticity ([ux, uy, uz], [vx, vy, vz])
                     = int3d(Th, regs["vitreous"])(LHS(ux, uy, uz, vx, vy, vz, vitreous))
                     + int3d(Th, regs["retina"])(LHS(ux, uy, uz, vx, vy, vz, retina))
                     + int3d(Th, regs["ILM"])(LHS(ux, uy, uz, vx, vy, vz, ILM))
-                    + int3d(Th)(tStep * dForceTypes(j*tStep)[i] * vz) //RHS of the equation
+                    + int3d(Th)(deltaF * vz) //RHS of the equation
                     + on(regs["fixed"], ux=0, uy=0, uz=0)
                     + on(labs["fixed"], ux=0, uy=0, uz=0)
                     ;

@@ -17,7 +17,7 @@
                             "nu", 0.49, // Poisson's ratio
                             "l", 1];    // length
 
-    real[string] retina = ["K", 1,      // stiffness
+    real[string] retina = ["K", 2,      // stiffness
                             "nu", 0.49, // Poisson's ratio
                             "l", 1];    // length
 
@@ -44,11 +44,12 @@
     macro lambda(K, nu) (K*nu / ( (1+nu) * (1-2*nu)) ) // first Lame parameter
     macro mu(K, nu) (K/(2*(1+nu)))                     // second Lame parameter
 
+    // generates an array of proposed forces at time t
     func real[int] Forces(real t) 
     {
         real[int] values = [t/tEnd,
                             (t/tEnd)^2,
-                            (1-exp(-t))/(1-exp(-tEnd)),
+                            (1-exp(-2*t))/(1-exp(-2*tEnd)),
                             0.] * endForce;
 
         return values;
@@ -125,7 +126,7 @@
     Wh vonMises;            // the von Mises stress
 
     exec("pause\n\n"
-            +"WARNING: Check that function spaces have corresponding integer order!!! (secion: generate function space) \n");
+            +"WARNING: Check that function spaces have corresponding integer order!!! (section: generate function space) \n");
 
 // generate other macros
     real sqrt2 = sqrt(2.);
@@ -183,7 +184,7 @@
             // calculate increase in force
                 real deltaF=0;
 
-                if(j>1)
+                if(j>0)
                     deltaF = Forces(j*tStep)[i] - Forces((j-1)*tStep)[i];
 
             // generate variational form

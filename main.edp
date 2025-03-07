@@ -10,9 +10,11 @@
     UNITS:
     - length        mm
     - area          mm^2
+    - volume        mm^3
     - time          d (days)
     - force         mN
     - pressure      kPa = mN/mm^2
+    - force density mN/mm^3 = N/cm^3
     */
 
 // load libraries
@@ -22,7 +24,7 @@
 // define model element constants
     real[string] vitreous = ["K", 1 * 10.^(-3), //stiffness, kPa
                             "nu", 0.49,         //Poisson's ratio
-                            "l", 15.5];         // length, mm
+                            "l", 65 * 10.^(-3)];         // length, mm
 
     real[string] retina = ["K", 0.25,           //stiffness, kPa
                             "nu", 0.47,         //Poisson's ratio
@@ -41,21 +43,25 @@
         VMT["A"+i] = VMT["r"+i]^2*pi;   //VMT area, mm^2
     }
 
+    int chooseR = 0;    // choose the radius index to run the simulation for
+
     real tEnd = 30;                 // final time of simulation, d
-    real tStep = 3;              // time step of simulation, d
-    real nSteps = floor(tEnd/tStep);    // total number of timesteps
-    int[string] forceTypes = ["lin", 0,
-                            "quad", 1,
-                            "inv_exp", 2,
-                            "null", 3];     // force types
-    real endForce = 10.^(-5);             // traction force at time tEnd, mN
+    real tStep = 3;                 // time step of simulation, d
+    real nSteps = floor(tEnd/tStep);        // total number of timesteps
+    int[string] forceTypes = [              // force types
+                              "lin", 0
+                            ,  "quad", 1
+                            ,  "inv_exp", 2
+                            // ,  "null", 3    // only for reference testing
+                            ];              
+    real endForce = 10.^(-5);       // traction force at time tEnd, mN
 
     tEnd = nSteps * tStep; // adjust tEnd to an integer multiple of tStep if it is not
 
     real wait = 0;      // hold graphs while plotting; 1-true, 0-false
 
 // define FEM parameters
-    int perimeterMeshPNo = 20;
+    int perimeterMeshPNo = 60;
     int heightMeshPNo = 5;
     int ILMheightMeshPNo = 2;
     int[string] labs = ["border", 201,
@@ -64,11 +70,10 @@
                         "fixed", 3001,
                         "VMT", 3002,
                         "refinement", 3003,
+                        "top", 3004,
                         "vitreous", 4001,
                         "retina", 4002,
                         "ILM", 4003];
-
-    int splitdeg = 1;   // how many times should split be run in meshes
 
 // define model functions and macros
     macro lambda(K, nu) (K*nu / ( (1+nu) * (1-2*nu)) ) // first Lame parameter
@@ -79,14 +84,14 @@
     {
         real[int] values = [t/tEnd,
                             (t/tEnd)^2,
-                            (1-exp(-t))/(1-exp(-tEnd)),
+                            (1-exp(-2*t))/(1-exp(-2*tEnd)),
                             0.] * endForce;
 
         return values;
     }
 
     // custom refinement function on the z axis, used in mesh generation
-    NewMacro refineZAxis(elmt, elmtMesh, elmt2DMesh, tetraRegs, refLength, heightMeshPNo, dir, boolsplit)
+    NewMacro refineZAxis(elmt, elmtMesh, elmt2DMesh, tetraRegs, refLength, heightMeshPNo, dir)
     {
         // initialize elmt["new l"] if it does not already exist
         if(elmt["new l"]==0)
@@ -106,29 +111,20 @@
             {
                 // extract mesh for refinement (newMesh) and the remainder (oldMesh)
                 oldMesh = trunc(elmtMesh, z >= (zBase+elmt["new l"]), label = regs["refinement"]);
-                
-                // if split is true, then split in trunc
-                if(boolsplit && elmt["new l"]<=heightMeshPNo^splitdeg*refLength)
-                {
-                    newMesh = trunc(elmtMesh, z <= (zBase+elmt["new l"]), label = regs["refinement"], split=heightMeshPNo);
-                }
-                else
-                {
-                    newMesh = trunc(elmtMesh, z <= (zBase+elmt["new l"]), label = regs["refinement"]);
-                
-                    // extract refinement surface
-                    int[int] refLabels = [regs["refinement"]];
-                    meshS ShRef = extract(newMesh, label = refLabels); // extract refinement surface
+                newMesh = trunc(elmtMesh, z <= (zBase+elmt["new l"]), label = regs["refinement"]);
+            
+                // extract refinement surface
+                int[int] refLabels = [regs["refinement"]];
+                meshS ShRef = extract(newMesh, label = refLabels); // extract refinement surface
 
-                    real newHeight = ShRef(0).z;    // extract z coordinate of refinement surface
+                real newHeight = ShRef(0).z;    // extract z coordinate of refinement surface
 
-                    // refine newMesh
-                    int[int] lup = [regs["inner"], regs["refinement"]];
-                    int[int] ldown = [regs["inner"], regs["VMT"]];
-                    int[int] lmid = [labs["border"], labs["fixed"]];     // prepare labels for 3d mesh
-                    newMesh = buildlayers(elmt2DMesh, heightMeshPNo, zbound = [zBase, newHeight], region = tetraRegs,
-                                            labelup = lup, labeldown = ldown, labelmid = lmid);  // update newMesh
-                }
+                // refine newMesh
+                int[int] lup = [regs["inner"], regs["refinement"]];
+                int[int] ldown = [regs["inner"], regs["VMT"]];
+                int[int] lmid = [labs["border"], labs["fixed"]];     // prepare labels for 3d mesh
+                newMesh = buildlayers(elmt2DMesh, heightMeshPNo, zbound = [zBase, newHeight], region = tetraRegs,
+                                        labelup = lup, labeldown = ldown, labelmid = lmid);  // update newMesh
 
                 elmtMesh = oldMesh + newMesh;        // update current mesh with refinement
                 elmt["new l"] /= heightMeshPNo;     // recalculate new l
@@ -140,29 +136,20 @@
             {
                 // extract mesh for refinement (newMesh) and the remainder (oldMesh)
                 oldMesh = trunc(elmtMesh, z <= (zBase-elmt["new l"]), label = regs["refinement"]);
-                
-                //
-                if(boolsplit && elmt["new l"]<=heightMeshPNo^splitdeg*refLength)
-                {
-                    newMesh = trunc(elmtMesh, z >= (zBase-elmt["new l"]), label = regs["refinement"], split=heightMeshPNo);
-                }
-                else
-                {
-                    newMesh = trunc(elmtMesh, z >= (zBase-elmt["new l"]), label = regs["refinement"]);
-                
-                    // extract refinement surface
-                    int[int] refLabels = [regs["refinement"]];
-                    meshS ShRef = extract(newMesh, label = refLabels); // extract refinement surface
+                newMesh = trunc(elmtMesh, z >= (zBase-elmt["new l"]), label = regs["refinement"]);
+            
+                // extract refinement surface
+                int[int] refLabels = [regs["refinement"]];
+                meshS ShRef = extract(newMesh, label = refLabels); // extract refinement surface
 
-                    real newHeight = ShRef(0).z;    // extract z coordinate of refinement surface
+                real newHeight = ShRef(0).z;    // extract z coordinate of refinement surface
 
-                    // refine newMesh
-                    int[int] lup = [regs["inner"], regs["VMT"]];
-                    int[int] ldown = [regs["inner"], regs["refinement"]];
-                    int[int] lmid = [labs["border"], labs["fixed"]];     // prepare labels for 3d mesh
-                    newMesh = buildlayers(elmt2DMesh, heightMeshPNo, zbound = [newHeight, zBase], region = tetraRegs,
-                                            labelup = lup, labeldown = ldown, labelmid = lmid);  // update newMesh
-                }
+                // refine newMesh
+                int[int] lup = [regs["inner"], regs["VMT"]];
+                int[int] ldown = [regs["inner"], regs["refinement"]];
+                int[int] lmid = [labs["border"], labs["fixed"]];     // prepare labels for 3d mesh
+                newMesh = buildlayers(elmt2DMesh, heightMeshPNo, zbound = [newHeight, zBase], region = tetraRegs,
+                                        labelup = lup, labeldown = ldown, labelmid = lmid);  // update newMesh
 
                 elmtMesh = oldMesh + newMesh;        // update current mesh with refinement
                 elmt["new l"] /= heightMeshPNo;     // recalculate new l
@@ -178,21 +165,21 @@
 
 // generate meshes
     // initial 2D mesh
-    border perimeter(t=0, 2*pi){x=VMT["r2"]*cos(t); y=VMT["r2"]*sin(t); label=labs["border"];} // generate VMT perimeter
+    border perimeter(t=0, 2*pi){x=VMT["r"+chooseR]*cos(t); y=VMT["r"+chooseR]*sin(t); label=labs["border"];} // generate VMT perimeter
     mesh Th2 = buildmesh(perimeter(perimeterMeshPNo), fixedborder=true); // generate z=0 cross-section in 2D space
     int[int] changeRegs = [0, regs["inner"]];   // prepare region values for changing
     Th2 = change(Th2, region = changeRegs);     //change region values
     
     // 3D vitreous mesh
-    int[int] lup = [regs["inner"], regs["fixed"]],
+    int[int] lup = [regs["inner"], regs["top"]],
                 ldown = [regs["inner"], regs["VMT"]],
                 lmid = [labs["border"], labs["fixed"]];     // prepare labels for 3d mesh
     int[int] tetraRegs = [regs["inner"], regs["vitreous"]]; // prepare labels for tetrahedra
     mesh3 ThVitr0 = buildlayers(Th2, heightMeshPNo, zbound = [ILM["l"]/2, vitreous["l"]+ILM["l"]/2], region = tetraRegs,
                                 labelup = lup, labeldown = ldown, labelmid = lmid); // generate 3d vitreous cylinder
 
-    // refine vitreous mesh to retinal size
-    refineZAxis(vitreous, ThVitr0, Th2, tetraRegs, retina["l"], heightMeshPNo, -1, 0); // bottom surface, do not split
+    // refine vitreous mesh to ILM length
+    refineZAxis(vitreous, ThVitr0, Th2, tetraRegs, ILM["l"], heightMeshPNo, -1); // bottom surface
 
     // 3D retinal mesh
     lup = [regs["inner"], regs["VMT"]];
@@ -202,22 +189,15 @@
     mesh3 ThRet0 = buildlayers(Th2, heightMeshPNo, zbound = [-retina["l"]-ILM["l"]/2, -ILM["l"]/2], region = tetraRegs,
                                 labelup = lup, labeldown = ldown, labelmid = lmid); // generate 3d retinal cylinder
 
-    // refine vitreous and retinal meshes to ILM size
-    tetraRegs = [regs["inner"], regs["vitreous"]];
-    refineZAxis(vitreous, ThVitr0, Th2, tetraRegs, ILM["l"], heightMeshPNo, -1, 1); // bottom surface, split
-
-    tetraRegs = [regs["inner"], regs["retina"]];
-    refineZAxis(retina, ThRet0, Th2, tetraRegs, ILM["l"], heightMeshPNo, 1, 1); // top surface, split
-
-    // get new vmt surface
-    mesh Th2VMT = trunc(Th2, 1, split = heightMeshPNo^splitdeg);
+    // refine retinal mesh to ILM length
+    refineZAxis(retina, ThRet0, Th2, tetraRegs, ILM["l"], heightMeshPNo, 1); // top surface
 
     // 3D ILM mesh
     lup = [regs["inner"], regs["VMT"]];
     ldown = [regs["inner"], regs["VMT"]];
-    lmid = [labs["border"], labs["fixed"]];      // prepare labels for 3d mesh
-    tetraRegs = [regs["inner"], regs["ILM"]]; // prepare labels for tetrahedra
-    mesh3 ThILM0 = buildlayers(Th2VMT, ILMheightMeshPNo, zbound = [-ILM["l"]/2, ILM["l"]/2], region = tetraRegs,
+    lmid = [labs["border"], labs["fixed"]];     // prepare labels for 3d mesh
+    tetraRegs = [regs["inner"], regs["ILM"]];   // prepare labels for tetrahedra
+    mesh3 ThILM0 = buildlayers(Th2, ILMheightMeshPNo, zbound = [-ILM["l"]/2, ILM["l"]/2], region = tetraRegs,
                                 labelup = lup, labeldown = ldown, labelmid = lmid); // generate 3d ilm cylinder
 
     // 3D VMT mesh
@@ -234,20 +214,24 @@
     plot(Th, wait = wait);
 
 // generate function space
-    int orderSpace = 1;
-    func PSpace = P1;
+    int orderSpace = 1;     // CHECK IF ORDERSPACE MATCHES PSPACE IN ORDER!!!!!!!!!!!!!!
+    func PSpace = P1;       // displacement should be P1
+
     fespace Vh(Th, [PSpace, PSpace, PSpace]);
     Vh [ux, uy, uz];                // current displacement
     Vh [uxtotal, uytotal, uztotal]; // total displacement from initial iteration
     Vh [vx, vy, vz];                // variational parameters
 
-    int orderStress = 0;    // stress should be computed as a P0 element
-    func PStress = P0;
+    int orderStress = 0;    // CHECK IF ORDERSTRESS MATCHES PSTRESS IN ORDER!!!!!!!!!!!!!!
+    func PStress = P0;      // stress should be P0
+
     fespace Wh(Th, PStress); // the stress fe space
     Wh vonMises;            // the von Mises stress
+    fespace Wh2(Th, [PStress, PStress, PStress, PStress, PStress, PStress]);
+    Wh2 [sigmaxx, sigmayy, sigmazz, sigmaxy, sigmayz, sigmaxz];
 
     exec("pause\n\n"
-            +"WARNING: Check that function spaces have corresponding integer order!!! (secion: generate function space) \n");
+            +"WARNING: Check that function spaces have corresponding integer order!!! (section: generate function space) \n");
 
 // generate other macros
     real sqrt2 = sqrt(2.);
@@ -280,21 +264,27 @@
     macro Sigma(ux, uy, uz, element) Elasticity(element) * Epsilon(ux, uy, uz) // the stress vector
 
     // calculating von Mises macro
-    macro calcVonMises(ux, uy, uz, element, elementMesh)
+    NewMacro calcStresses(ux, uy, uz, element, elementMesh)
     {
         fespace Wh#elementMesh(elementMesh, [PStress, PStress, PStress, PStress, PStress, PStress]);
-        Wh#elementMesh [sigmaxx, sigmayy, sigmazz, sigmaxy, sigmayz, sigmaxz];
+        Wh#elementMesh [sxx, syy, szz, sxy, syz, sxz];
 
-        [sigmaxx, sigmayy, sigmazz, sigmaxy, sigmayz, sigmaxz] = Sigma(ux, uy, uz, element);
+        // calculate local element stresses
+        [sxx, syy, szz, sxy, syz, sxz] = Sigma(ux, uy, uz, element);
 
-        vonMises = vonMises + sqrt(0.5*( (sigmaxx-sigmayy)^2 + (sigmayy-sigmazz)^2 + (sigmaxx-sigmazz)^2 )
-                                    + 3*( sigmaxy^2 + sigmayz^2 + sigmaxz^2 )
+        // add local stresses to whole mesh variables
+        [sigmaxx, sigmayy, sigmazz, sigmaxy, sigmayz, sigmaxz] = [sigmaxx, sigmayy, sigmazz, sigmaxy, sigmayz, sigmaxz]
+                                                                + [sxx, syy, szz, sxy, syz, sxz];
+
+        // calculate local von Mises and add to whole mesh variable
+        vonMises = vonMises + sqrt(0.5*( (sxx-syy)^2 + (syy-szz)^2 + (sxx-szz)^2 )
+                                    + 3*( sxy^2 + syz^2 + sxz^2 )
                                     );
-    } //
+    } EndMacro
 
 // define parameters for export into ParaView
-    int[int] Order = [orderSpace, orderStress]; // corresponds to the variable order
-    string DataName = "Displacement von_Mises"; // variable names in the vtu file
+    int[int] Order = [orderSpace, orderSpace, orderStress, orderStress]; // corresponds to the variable order
+    string DataName = "Displacement Total_Displacement Stress von_Mises"; // variable names in the vtu file
 
 // run simulations
     for [force, i: forceTypes]
@@ -311,7 +301,7 @@
             // calculate increase in force
                 real deltaF=0;
 
-                if(j>1)
+                if(j>0)
                     deltaF = Forces(j*tStep)[i] - Forces((j-1)*tStep)[i];
 
             // generate variational form
@@ -319,7 +309,9 @@
                     = int3d(Th, regs["vitreous"])(LHS(ux, uy, uz, vx, vy, vz, vitreous))
                     + int3d(Th, regs["retina"])(LHS(ux, uy, uz, vx, vy, vz, retina))
                     + int3d(Th, regs["ILM"])(LHS(ux, uy, uz, vx, vy, vz, ILM))
-                    + int3d(Th)(deltaF * vz) //RHS of the equation
+                    + int3d(Th, regs["vitreous"])(deltaF / ThVitr.measure * vz) //RHS of the equation
+                    + int3d(Th, regs["retina"])(deltaF / ThRet.measure * vz)    //RHS of the equation
+                    + int3d(Th, regs["ILM"])(deltaF / ThILM.measure * vz)       //RHS of the equation
                     + on(regs["fixed"], ux=0, uy=0, uz=0)
                     + on(labs["fixed"], ux=0, uy=0, uz=0)
                     ;
@@ -335,23 +327,28 @@
                 ThILM = movemesh(ThILM, [x+ux, y+uy, z+uz]);
                 Th = movemesh(Th, [x+ux, y+uy, z+uz]);
 
+            // delete old meshes
+                [ux, uy, uz] = [ux, uy, uz];
+
             // calculate total displacement
                 [uxtotal, uytotal, uztotal] = [uxtotal, uytotal, uztotal] + [ux, uy, uz];
 
             // compute the stress vector and von Mises stress
-                calcVonMises(uxtotal, uytotal, uztotal, vitreous, ThVitr);
-                calcVonMises(uxtotal, uytotal, uztotal, retina, ThRet);
-                calcVonMises(uxtotal, uytotal, uztotal, ILM, ThILM);
+                calcStresses(uxtotal, uytotal, uztotal, vitreous, ThVitr);
+                calcStresses(uxtotal, uytotal, uztotal, retina, ThRet);
+                calcStresses(uxtotal, uytotal, uztotal, ILM, ThILM);
 
-            // below, j*tStep is multiplied by 10 for convenience and postprocessed in ParaView
-                savevtk("D:\\FAKS\\UoE\\24-25 FYP\\FreeFEM Code\\main\\main_Th_"+force+"_"+j*tStep*100+".vtu",
-                    Th, [ux, uy, uz], vonMises, dataname=DataName, order=Order);
+            // export to ParaView
+                savevtk("D:\\FAKS\\UoE\\24-25 FYP\\FreeFEM Code\\main\\main_Th_R"+chooseR+"_"+force+"_"+j*tStep+".vtu", Th,
+                    [ux, uy, uz], [uxtotal, uytotal, uztotal], [sigmaxx, sigmayy, sigmazz, sigmaxy, sigmayz, sigmaxz], vonMises,
+                    dataname=DataName, order=Order);
 
             // plot
                 plot(Th, wait = (j==nSteps)*wait);
 
-            // reset von Mises after calculation
+            // reset stresses and von Mises after calculation
                 vonMises = 0;
+                [sigmaxx, sigmayy, sigmazz, sigmaxy, sigmayz, sigmaxz] = [0, 0, 0, 0, 0, 0];
 
             // finish and write computation time
             real clockEnd = clock();
